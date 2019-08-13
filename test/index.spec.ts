@@ -5,10 +5,10 @@ import {Circuit} from "../src/circuit";
 import {CircuitState} from "../src/state";
 
 const assertOpenCircuit = (circuit) =>
-  chai.assert(circuit.getState() === CircuitState.OPEN, "Circuit should be open");
+  chai.assert(circuit.isOpen, "Circuit should be open");
 
 const assertHalfOpenCircuit = (circuit) =>
-  chai.assert(circuit.getState() === CircuitState.HALF_OPEN, "Circuit should be half-open");
+  chai.assert(circuit.isHalfOpen, "Circuit should be half-open");
 
 const callAndAssertCalled = async (circuit, spy) => {
   await circuit.call();

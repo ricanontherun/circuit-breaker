@@ -154,8 +154,20 @@ class Circuit extends EventEmitter {
     this.state = to;
   }
 
-  public getState(): CircuitState {
-    return this.state;
+  public get isOpen(): boolean {
+    return this.state === CircuitState.OPEN;
+  }
+
+  public get isHalfOpen(): boolean {
+    return this.state === CircuitState.HALF_OPEN;
+  }
+
+  public get isClosed(): boolean {
+    return this.state === CircuitState.CLOSED;
+  }
+
+  public get isClosedCanary(): boolean {
+    return this.state === CircuitState.CLOSED_CANARY;
   }
 }
 
