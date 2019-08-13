@@ -1,0 +1,14 @@
+{
+  "compilerOptions": {
+    "lib": [ "es2015", "dom" ],
+    "target": "es5",
+    "outDir": "build"
+  },
+  "include": [
+    "src/**/*",
+    "test/**/*"
+  ],
+  "exclude": [
+    "node_modules"
+  ]
+}
