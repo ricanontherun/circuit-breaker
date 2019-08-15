@@ -63,7 +63,7 @@ describe("tests", () => {
     });
   });
   describe("state: closed", () => {
-    it("will not call the registered", async () => {
+    it("will not call the registered function", async () => {
       const fn = sinon.spy();
       const circuit = new Circuit(fn, {
         initialState: CircuitState.CLOSED,
@@ -74,6 +74,5 @@ describe("tests", () => {
       chai.assert(fn.notCalled);
       chai.assert(closedError.message === "Circuit is closed, function not called");
     });
-
   });
 });

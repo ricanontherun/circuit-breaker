@@ -6,7 +6,10 @@ import {CallResponse} from "./response";
 const CLOSED_ERROR: Error = new Error("Circuit is closed, function not called");
 const FAILED_CANARY_ERROR: Error = new Error("Canary request failed, re-closing circuit");
 
-const random = (min: number, max: number) => Math.floor((Math.random() * min) + max);
+interface IRandomizer {
+  (from: number, to: number): number;
+}
+const random = (min: number, max: number): number => Math.floor((Math.random() * min) + max);
 
 type IKeyValue = { [key: string]: any };
 
@@ -18,6 +21,10 @@ class CircuitOptions {
   public successThreshold?: number = 1;
 
   public canaryRequestTimeout?: number = 60 * 1000;
+
+  public halfOpenCallPercentage?: number = 50.0;
+
+  public randomizer?: IRandomizer = random;
 }
 
 const defaultCircuitOptions: CircuitOptions = new CircuitOptions();
@@ -37,10 +44,7 @@ class Circuit extends EventEmitter {
     this.fn = fn;
     this.options = {...defaultCircuitOptions, ...options};
 
-    this.state = this.options.initialState;
-    if (this.state === CircuitState.CLOSED) {
-      this.startCanaryTimeout();
-    }
+    this.setState(this.options.initialState);
   }
 
   public async call(...args: any[]): Promise<any> {
@@ -50,8 +54,10 @@ class Circuit extends EventEmitter {
       case CircuitState.CLOSED_CANARY:
         return this.attemptCanary(args);
       case CircuitState.HALF_OPEN:
-        return random(1, 100) > 70.0 ? this.attemptHalfOpenCall(args) : CLOSED_ERROR;
-      case CircuitState.OPEN: // Make the call.
+        return this.options.randomizer(1, 100) >= this.options.halfOpenCallPercentage ?
+          this.attemptHalfOpenCall(args)
+          : CLOSED_ERROR;
+      case CircuitState.OPEN:
         return this.attemptCall(args);
     }
   }
@@ -72,17 +78,15 @@ class Circuit extends EventEmitter {
     if (!callResponse.ok) {
       this.incrementFailed();
 
-      // Should we close the circuit?
       if (this.metrics.consecutiveFailedCalls > this.options.failureThreshold) {
-        this.close();
+        this.setState(CircuitState.CLOSED);
         return CLOSED_ERROR;
       }
     } else {
       this.incrementSuccessful();
 
-      // Should we open the circuit?
       if (this.metrics.consecutiveSuccessfulCalls > this.options.successThreshold) {
-        this.changeState(CircuitState.OPEN);
+        this.setState(CircuitState.OPEN);
       }
     }
 
@@ -98,7 +102,7 @@ class Circuit extends EventEmitter {
       if (this.metrics.consecutiveFailedCalls > this.options.failureThreshold) {
         // If we exceed the configured consecutive fail threshold, transition into
         // a half open state. This could help relieve pressure, without using too harsh of a policy.
-        this.changeState(CircuitState.HALF_OPEN);
+        this.setState(CircuitState.HALF_OPEN);
 
         this.metrics.consecutiveFailedCalls = 0;
 
@@ -113,10 +117,10 @@ class Circuit extends EventEmitter {
     const canaryResponse: CallResponse = await this.safeCall(args);
 
     if (canaryResponse.ok) {
-      this.changeState(CircuitState.HALF_OPEN);
+      this.setState(CircuitState.HALF_OPEN);
       return canaryResponse.response;
     } else {
-      this.close();
+      this.setState(CircuitState.CLOSED);
       return FAILED_CANARY_ERROR;
     }
   }
@@ -134,24 +138,22 @@ class Circuit extends EventEmitter {
     return response;
   }
 
-  private close(): void {
-    this.changeState(CircuitState.CLOSED);
-    this.startCanaryTimeout();
-  }
-
   private startCanaryTimeout(): void {
     setTimeout(() => {
-      this.changeState(CircuitState.CLOSED_CANARY);
+      this.setState(CircuitState.CLOSED_CANARY);
     }, this.options.canaryRequestTimeout);
   }
 
-  private changeState(to: CircuitState): void {
-    this.emit("state-change", {
-      from: this.state,
-      to,
-    });
+  private setState(to: CircuitState): void {
+    const from: CircuitState = this.state;
 
     this.state = to;
+
+    if (this.isClosed) {
+      this.startCanaryTimeout();
+    }
+
+    this.emit("state-change", {from, to});
   }
 
   public get isOpen(): boolean {
