@@ -69,10 +69,18 @@ describe("tests", () => {
         initialState: CircuitState.CLOSED,
       });
 
-      const closedError: Error = await circuit.call();
+      const closedError: any = await circuit.call();
 
       chai.assert(fn.notCalled);
+
+      chai.expect(closedError).to.be.instanceOf(Error);
       chai.assert(closedError.message === "Circuit is closed, function not called");
     });
+  });
+
+  describe("state: half-open", () => {
+    // N consecutive ok calls will open the circuit.
+    // N consecutive bad calls will close the circuit.
+    // Anything else (mixture of good/bad) keeps the circuit in a half-open state.
   });
 });

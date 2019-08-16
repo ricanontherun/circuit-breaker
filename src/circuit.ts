@@ -6,25 +6,25 @@ import {CallResponse} from "./response";
 const CLOSED_ERROR: Error = new Error("Circuit is closed, function not called");
 const FAILED_CANARY_ERROR: Error = new Error("Canary request failed, re-closing circuit");
 
-interface IRandomizer {
-  (from: number, to: number): number;
+interface IRandomNumberGenerator {
+  (min: number, max: number): number;
 }
 const random = (min: number, max: number): number => Math.floor((Math.random() * min) + max);
 
 type IKeyValue = { [key: string]: any };
 
 class CircuitOptions {
-  public initialState?: CircuitState = CircuitState.OPEN;
-
   public failureThreshold?: number = 1;
 
   public successThreshold?: number = 1;
 
   public canaryRequestTimeout?: number = 60 * 1000;
 
-  public halfOpenCallPercentage?: number = 50.0;
+  public openThreshold?: number = 50.0;
 
-  public randomizer?: IRandomizer = random;
+  public initialState?: CircuitState = CircuitState.OPEN;
+
+  public random?: IRandomNumberGenerator = random;
 }
 
 const defaultCircuitOptions: CircuitOptions = new CircuitOptions();
@@ -34,6 +34,7 @@ class Circuit extends EventEmitter {
   private state: CircuitState = CircuitState.OPEN;
   private options: CircuitOptions;
   private metrics: IKeyValue = {
+    halfOpenCalls: 0,
     consecutiveFailedCalls: 0,
     consecutiveSuccessfulCalls: 0,
   };
@@ -54,7 +55,7 @@ class Circuit extends EventEmitter {
       case CircuitState.CLOSED_CANARY:
         return this.attemptCanary(args);
       case CircuitState.HALF_OPEN:
-        return this.options.randomizer(1, 100) >= this.options.halfOpenCallPercentage ?
+        return this.options.random(1, 100) >= this.options.openThreshold ?
           this.attemptHalfOpenCall(args)
           : CLOSED_ERROR;
       case CircuitState.OPEN:
@@ -73,12 +74,16 @@ class Circuit extends EventEmitter {
   }
 
   private async attemptHalfOpenCall(args: any[]): Promise<any> {
+    this.metrics.halfOpenCalls++;
+
     const callResponse: CallResponse = await this.safeCall(args);
 
     if (!callResponse.ok) {
       this.incrementFailed();
 
-      if (this.metrics.consecutiveFailedCalls > this.options.failureThreshold) {
+      // Refactor to percentage based gate.
+      const percentageGoodCalls = this.metrics.consecutiveFailedCalls / this.metrics.halfOpenCalls;
+      if (this.metrics.halfOpenCalls >= 2) {
         this.setState(CircuitState.CLOSED);
         return CLOSED_ERROR;
       }
