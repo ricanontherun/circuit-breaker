@@ -18,12 +18,17 @@ class CircuitOptions {
 
   public successThreshold?: number = 1;
 
-  public canaryRequestTimeout?: number = 60 * 1000;
+  // The amount of time (milliseconds) before the circuit should
+  // transition into the half-open state.
+  public halfOpenTimeout?: number = 60 * 1000;
 
-  public openThreshold?: number = 50.0;
+  // The percentage of calls which should be made when in the half-open state.
+  public halfOpenCallRate?: number = 50.0;
 
+  // Initial circuit state, mostly useful for tests.
   public initialState?: CircuitState = CircuitState.OPEN;
 
+  // Random number generator used in half-open state, also useful for tests.
   public random?: IRandomNumberGenerator = random;
 }
 
@@ -33,6 +38,7 @@ class Circuit extends EventEmitter {
   protected fn: Function;
   private state: CircuitState = CircuitState.OPEN;
   private options: CircuitOptions;
+  private halfOpenMs: number = 0;
   private metrics: IKeyValue = {
     halfOpenCalls: 0,
     consecutiveFailedCalls: 0,
@@ -49,13 +55,15 @@ class Circuit extends EventEmitter {
   }
 
   public async call(...args: any[]): Promise<any> {
+    if (this.shouldTransitionToHalfOpenState) {
+      this.setState(CircuitState.HALF_OPEN);
+    }
+
     switch (this.state) {
       case CircuitState.CLOSED:
         return CLOSED_ERROR;
-      case CircuitState.CLOSED_CANARY:
-        return this.attemptCanary(args);
       case CircuitState.HALF_OPEN:
-        return this.options.random(1, 100) >= this.options.openThreshold ?
+        return this.options.random(1, 100) >= this.options.halfOpenCallRate ?
           this.attemptHalfOpenCall(args)
           : CLOSED_ERROR;
       case CircuitState.OPEN:
@@ -73,6 +81,11 @@ class Circuit extends EventEmitter {
     this.metrics.consecutiveSuccessfulCalls++;
   }
 
+  private resetMetrics() {
+    this.metrics.consecutiveFailedCalls = 0;
+    this.metrics.consecutiveSuccessfulCalls = 0;
+  }
+
   private async attemptHalfOpenCall(args: any[]): Promise<any> {
     this.metrics.halfOpenCalls++;
 
@@ -81,16 +94,14 @@ class Circuit extends EventEmitter {
     if (!callResponse.ok) {
       this.incrementFailed();
 
-      // Refactor to percentage based gate.
-      const percentageGoodCalls = this.metrics.consecutiveFailedCalls / this.metrics.halfOpenCalls;
-      if (this.metrics.halfOpenCalls >= 2) {
+      if (this.shouldClose) {
         this.setState(CircuitState.CLOSED);
         return CLOSED_ERROR;
       }
     } else {
       this.incrementSuccessful();
 
-      if (this.metrics.consecutiveSuccessfulCalls > this.options.successThreshold) {
+      if (this.shouldOpen) {
         this.setState(CircuitState.OPEN);
       }
     }
@@ -105,8 +116,6 @@ class Circuit extends EventEmitter {
       this.incrementFailed();
 
       if (this.metrics.consecutiveFailedCalls > this.options.failureThreshold) {
-        // If we exceed the configured consecutive fail threshold, transition into
-        // a half open state. This could help relieve pressure, without using too harsh of a policy.
         this.setState(CircuitState.HALF_OPEN);
 
         this.metrics.consecutiveFailedCalls = 0;
@@ -116,18 +125,6 @@ class Circuit extends EventEmitter {
     }
 
     return callResponse.response;
-  }
-
-  private async attemptCanary(args: any[]): Promise<any> {
-    const canaryResponse: CallResponse = await this.safeCall(args);
-
-    if (canaryResponse.ok) {
-      this.setState(CircuitState.HALF_OPEN);
-      return canaryResponse.response;
-    } else {
-      this.setState(CircuitState.CLOSED);
-      return FAILED_CANARY_ERROR;
-    }
   }
 
   private async safeCall(args: any[]): Promise<CallResponse> {
@@ -143,21 +140,16 @@ class Circuit extends EventEmitter {
     return response;
   }
 
-  private startCanaryTimeout(): void {
-    setTimeout(() => {
-      this.setState(CircuitState.CLOSED_CANARY);
-    }, this.options.canaryRequestTimeout);
-  }
-
   private setState(to: CircuitState): void {
     const from: CircuitState = this.state;
 
     this.state = to;
 
     if (this.isClosed) {
-      this.startCanaryTimeout();
+      this.halfOpenMs = Circuit.currentTimeMs + this.options.halfOpenTimeout;
     }
 
+    this.resetMetrics();
     this.emit("state-change", {from, to});
   }
 
@@ -173,8 +165,20 @@ class Circuit extends EventEmitter {
     return this.state === CircuitState.CLOSED;
   }
 
-  public get isClosedCanary(): boolean {
-    return this.state === CircuitState.CLOSED_CANARY;
+  private get shouldOpen(): boolean {
+    return this.metrics.consecutiveSuccessfulCalls > this.options.successThreshold;
+  }
+
+  private get shouldClose(): boolean {
+    return this.metrics.consecutiveSuccessfulCalls > this.options.successThreshold;
+  }
+
+  private get shouldTransitionToHalfOpenState(): boolean {
+    return this.isClosed && Circuit.currentTimeMs >= this.halfOpenMs;
+  }
+
+  private static get currentTimeMs(): number {
+    return (new Date()).getTime();
   }
 }
 

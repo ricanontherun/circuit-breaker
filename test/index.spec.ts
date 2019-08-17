@@ -15,7 +15,6 @@ const callAndAssertCalled = async (circuit, spy) => {
   chai.assert(spy.called);
 };
 
-
 describe("tests", () => {
   describe("state: open", () => {
     it("will call the registered function", async () => {
@@ -62,6 +61,7 @@ describe("tests", () => {
       assertOpenCircuit(circuit);
     });
   });
+
   describe("state: closed", () => {
     it("will not call the registered function", async () => {
       const fn = sinon.spy();
