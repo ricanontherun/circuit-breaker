@@ -4,19 +4,19 @@ import {CircuitState} from "./state";
 import {CallResponse} from "./response";
 
 const CLOSED_ERROR: Error = new Error("Circuit is closed, function not called");
-const FAILED_CANARY_ERROR: Error = new Error("Canary request failed, re-closing circuit");
 
 interface IRandomNumberGenerator {
   (min: number, max: number): number;
 }
+
 const random = (min: number, max: number): number => Math.floor((Math.random() * min) + max);
 
 type IKeyValue = { [key: string]: any };
 
 class CircuitOptions {
-  public failureThreshold?: number = 1;
+  public closeAfterFailedCalls?: number = 1;
 
-  public successThreshold?: number = 1;
+  public openAfterOkCalls?: number = 1;
 
   // The amount of time (milliseconds) before the circuit should
   // transition into the half-open state.
@@ -38,11 +38,11 @@ class Circuit extends EventEmitter {
   protected fn: Function;
   private state: CircuitState = CircuitState.OPEN;
   private options: CircuitOptions;
-  private halfOpenMs: number = 0;
+  private halfOpenTimeoutHandle = null;
   private metrics: IKeyValue = {
     halfOpenCalls: 0,
     consecutiveFailedCalls: 0,
-    consecutiveSuccessfulCalls: 0,
+    consecutiveOkCalls: 0,
   };
 
   constructor(fn: Function, options: CircuitOptions = {}) {
@@ -52,13 +52,18 @@ class Circuit extends EventEmitter {
     this.options = {...defaultCircuitOptions, ...options};
 
     this.setState(this.options.initialState);
+    this.registerCleanupHandler();
+  }
+
+  private registerCleanupHandler() {
+    process.on("exit", this.clearTimers);
+  }
+
+  private clearTimers() {
+    clearTimeout(this.halfOpenTimeoutHandle);
   }
 
   public async call(...args: any[]): Promise<any> {
-    if (this.shouldTransitionToHalfOpenState) {
-      this.setState(CircuitState.HALF_OPEN);
-    }
-
     switch (this.state) {
       case CircuitState.CLOSED:
         return CLOSED_ERROR;
@@ -73,17 +78,17 @@ class Circuit extends EventEmitter {
 
   private incrementFailed() {
     this.metrics.consecutiveFailedCalls++;
-    this.metrics.consecutiveSuccessfulCalls = 0;
+    this.metrics.consecutiveOkCalls = 0;
   }
 
   private incrementSuccessful() {
     this.metrics.consecutiveFailedCalls = 0;
-    this.metrics.consecutiveSuccessfulCalls++;
+    this.metrics.consecutiveOkCalls++;
   }
 
   private resetMetrics() {
     this.metrics.consecutiveFailedCalls = 0;
-    this.metrics.consecutiveSuccessfulCalls = 0;
+    this.metrics.consecutiveOkCalls = 0;
   }
 
   private async attemptHalfOpenCall(args: any[]): Promise<any> {
@@ -115,7 +120,7 @@ class Circuit extends EventEmitter {
     if (!callResponse.ok) {
       this.incrementFailed();
 
-      if (this.metrics.consecutiveFailedCalls > this.options.failureThreshold) {
+      if (this.metrics.consecutiveFailedCalls > this.options.closeAfterFailedCalls) {
         this.setState(CircuitState.HALF_OPEN);
 
         this.metrics.consecutiveFailedCalls = 0;
@@ -146,11 +151,22 @@ class Circuit extends EventEmitter {
     this.state = to;
 
     if (this.isClosed) {
-      this.halfOpenMs = Circuit.currentTimeMs + this.options.halfOpenTimeout;
+      this.startClosedTimer();
     }
 
     this.resetMetrics();
     this.emit("state-change", {from, to});
+  }
+
+  private startClosedTimer() {
+    if (this.halfOpenTimeoutHandle !== null) {
+      clearTimeout(this.halfOpenTimeoutHandle);
+    }
+
+    this.halfOpenTimeoutHandle = setTimeout(() => {
+      this.setState(CircuitState.HALF_OPEN);
+      this.halfOpenTimeoutHandle = null;
+    }, this.options.halfOpenTimeout);
   }
 
   public get isOpen(): boolean {
@@ -166,19 +182,11 @@ class Circuit extends EventEmitter {
   }
 
   private get shouldOpen(): boolean {
-    return this.metrics.consecutiveSuccessfulCalls > this.options.successThreshold;
+    return this.metrics.consecutiveOkCalls >= this.options.openAfterOkCalls;
   }
 
   private get shouldClose(): boolean {
-    return this.metrics.consecutiveSuccessfulCalls > this.options.successThreshold;
-  }
-
-  private get shouldTransitionToHalfOpenState(): boolean {
-    return this.isClosed && Circuit.currentTimeMs >= this.halfOpenMs;
-  }
-
-  private static get currentTimeMs(): number {
-    return (new Date()).getTime();
+    return this.metrics.consecutiveFailedCalls >= this.options.closeAfterFailedCalls;
   }
 }
 

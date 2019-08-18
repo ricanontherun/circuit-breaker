@@ -10,6 +10,9 @@ const assertOpenCircuit = (circuit) =>
 const assertHalfOpenCircuit = (circuit) =>
   chai.assert(circuit.isHalfOpen, "Circuit should be half-open");
 
+const assertClosedCircuit = (circuit) =>
+  chai.assert(circuit.isClosed, "Circuit should be closed");
+
 const callAndAssertCalled = async (circuit, spy) => {
   await circuit.call();
   chai.assert(spy.called);
@@ -18,7 +21,8 @@ const callAndAssertCalled = async (circuit, spy) => {
 describe("tests", () => {
   describe("state: open", () => {
     it("will call the registered function", async () => {
-      const fn = sinon.spy((one, two) => {});
+      const fn = sinon.spy((one, two) => {
+      });
       const circuit = new Circuit(fn);
 
       await circuit.call(1, 2);
@@ -32,8 +36,8 @@ describe("tests", () => {
         throw new Error();
       });
       const circuit = new Circuit(fn, {
-        failureThreshold: 1,
-        successThreshold: 1,
+        closeAfterFailedCalls: 1,
+        openAfterOkCalls: 1,
       });
 
       // First failed call, circuit should remain open.
@@ -52,8 +56,8 @@ describe("tests", () => {
         throw new Error();
       });
       const circuit = new Circuit(fn, {
-        failureThreshold: 1,
-        successThreshold: 1,
+        closeAfterFailedCalls: 1,
+        openAfterOkCalls: 1,
       });
 
       assertOpenCircuit(circuit);
@@ -78,7 +82,65 @@ describe("tests", () => {
     });
   });
 
+  it("will transition to half-open after a certain period of time", async () => {
+    const timeout: number = 3 * 1000;
+    const fn = sinon.spy();
+    const circuit: Circuit = new Circuit(fn, {
+      initialState: CircuitState.CLOSED,
+      halfOpenTimeout: timeout,
+    });
+
+    assertClosedCircuit(circuit);
+
+    // After 1 second, circuit should still be closed.
+    setTimeout(async () => {
+      await circuit.call();
+      assertClosedCircuit(circuit);
+    }, 1000);
+
+    // At this point, the circuit should have changed states.
+    setTimeout(async () => {
+      assertHalfOpenCircuit(circuit);
+    }, timeout);
+  });
+
   describe("state: half-open", () => {
+    it("will open after N consecutive successful calls", async () => {
+      const fn = sinon.spy(() => {
+        return 1;
+      });
+      const random = sinon.stub();
+
+      // Ensure all 3 calls make it through the half-open circuit.
+      random.onFirstCall().returns(100.00);
+      random.onSecondCall().returns(100.00);
+      random.onThirdCall().returns(100.00);
+
+      const circuit: Circuit = new Circuit(fn, {
+        initialState: CircuitState.HALF_OPEN,
+        openAfterOkCalls: 3,
+        random,
+      });
+
+      let response: number;
+
+      assertHalfOpenCircuit(circuit);
+      response = await circuit.call();
+      chai.expect(fn.calledOnce);
+      chai.expect(response).to.be.equal(1);
+
+      assertHalfOpenCircuit(circuit);
+      response = await circuit.call();
+      chai.expect(fn.calledOnce);
+      chai.expect(response).to.be.equal(1);
+
+      assertHalfOpenCircuit(circuit);
+      response = await circuit.call();
+      chai.expect(fn.calledOnce);
+      chai.expect(response).to.be.equal(1);
+
+      assertOpenCircuit(circuit);
+    });
     // N consecutive ok calls will open the circuit.
     // N consecutive bad calls will close the circuit.
     // Anything else (mixture of good/bad) keeps the circuit in a half-open state.
