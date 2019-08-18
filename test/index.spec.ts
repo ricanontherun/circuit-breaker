@@ -141,8 +141,10 @@ describe("tests", () => {
 
       assertOpenCircuit(circuit);
     });
-    // N consecutive ok calls will open the circuit.
-    // N consecutive bad calls will close the circuit.
+
+    it("will open after N consecutive successful calls", () => {
+
+    });
     // Anything else (mixture of good/bad) keeps the circuit in a half-open state.
   });
 });

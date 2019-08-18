@@ -57,6 +57,9 @@ class Circuit extends EventEmitter {
 
   private registerCleanupHandler() {
     process.on("exit", this.clearTimers);
+    process.on("SIGINT", this.clearTimers);
+    process.on("SIGUSR1", this.clearTimers);
+    process.on("SIGUSR2", this.clearTimers);
   }
 
   private clearTimers() {
