@@ -7,12 +7,17 @@ import Circuit from "./circuit";
 
 Close on first caught Error
 ```javascript
-const circuitOptions = {
+const circuitOptions: CircuitOptions = {
   closeAfterFailedCalls: 1, // defaults to 1.
 };
-const circutBreaker = new CircuitBreaker(async () => {
+
+const circutBreaker: CircuitBreaker = new CircuitBreaker(async (n) => {
   throw new Error('Yep');
 });
+
+await circuitBreaker.call(1);
+
+circuitBreaker.isClosed; // true.
 ```
 
 ```javascript

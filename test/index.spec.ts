@@ -1,17 +1,17 @@
 import * as sinon from "sinon";
 import * as chai from "chai";
 
-import Circuit from "../src/circuit";
+import CircuitBreaker from "../src/circuit";
 import {CircuitState} from "../src/state";
 
 const assertOpenCircuit = (circuit) =>
-  chai.assert(circuit.isOpen, "Circuit should be open");
+  chai.assert(circuit.isOpen, "CircuitBreaker should be open");
 
 const assertHalfOpenCircuit = (circuit) =>
-  chai.assert(circuit.isHalfOpen, "Circuit should be half-open");
+  chai.assert(circuit.isHalfOpen, "CircuitBreaker should be half-open");
 
 const assertClosedCircuit = (circuit) =>
-  chai.assert(circuit.isClosed, "Circuit should be closed");
+  chai.assert(circuit.isClosed, "CircuitBreaker should be closed");
 
 const callAndAssertCalled = async (circuit, spy) => {
   await circuit.call();
@@ -21,10 +21,10 @@ const callAndAssertCalled = async (circuit, spy) => {
 describe("tests", () => {
   describe("state: open", () => {
     it("will call the registered function", async () => {
-      const fn = sinon.spy((one, two) => {
+      const fn = sinon.spy(async (one, two) => {
         return 1;
       });
-      const circuit = new Circuit(fn);
+      const circuit = new CircuitBreaker(fn);
 
       await circuit.call(1, 2);
 
@@ -33,21 +33,21 @@ describe("tests", () => {
     });
 
     it("callOrDefault will return whatever the function returns", async () => {
-      const fn = sinon.spy(() => {
+      const fn = sinon.spy(async () => {
         return 1;
       });
 
-      const circuit = new Circuit(fn);
+      const circuit = new CircuitBreaker(fn);
 
       const value = await circuit.callOrDefault(100);
       chai.expect(value).to.be.equal(1);
     });
 
     it("will change to half-open when failed call threshold is met or exceeded.", async () => {
-      const fn = sinon.spy(() => {
+      const fn = sinon.spy(async () => {
         throw new Error();
       });
-      const circuit = new Circuit(fn, {
+      const circuit = new CircuitBreaker(fn, {
         closeThreshold: 2,
         openThreshold: 2,
       });
@@ -64,10 +64,10 @@ describe("tests", () => {
     });
 
     it("will not change to half-open if failed call threshold is not exceeded", async () => {
-      const fn = sinon.spy(() => {
+      const fn = sinon.spy(async () => {
         throw new Error();
       });
-      const circuit = new Circuit(fn, {
+      const circuit = new CircuitBreaker(fn, {
         closeThreshold: 2,
         openThreshold: 2,
       });
@@ -80,22 +80,22 @@ describe("tests", () => {
 
   describe("state: closed", () => {
     it("will not call the registered function", async () => {
-      const fn = sinon.spy();
-      const circuit = new Circuit(fn, {
+      const fn = sinon.spy(async () => {
+      });
+      const circuit = new CircuitBreaker(fn, {
         initialState: CircuitState.CLOSED,
       });
 
-      const closedError: any = await circuit.call();
+      const closedError: Error = await circuit.call();
 
-      chai.assert(fn.notCalled);
-
+      chai.expect(fn.called).to.be.false;
       chai.expect(closedError).to.be.instanceOf(Error);
       chai.assert(closedError.message === "Circuit is closed, function not called");
     });
     it("will transition to half-open after a certain period of time", async () => {
       const timeout: number = 3 * 1000;
       const fn = sinon.spy();
-      const circuit: Circuit = new Circuit(fn, {
+      const circuit: CircuitBreaker = new CircuitBreaker(fn, {
         initialState: CircuitState.CLOSED,
         halfOpenTimeout: timeout,
       });
@@ -115,10 +115,10 @@ describe("tests", () => {
     });
 
     it("will return default arguments", async () => {
-      const fn = sinon.spy(() => {
+      const fn = sinon.spy(async () => {
         return 100;
       });
-      const circuit: Circuit = new Circuit(fn, {
+      const circuit: CircuitBreaker = new CircuitBreaker(fn, {
         initialState: CircuitState.CLOSED,
       });
 
@@ -129,7 +129,7 @@ describe("tests", () => {
 
   describe("state: half-open", () => {
     it("will return default value if half-open call is rejected", async () => {
-      const fn = sinon.spy(() => {
+      const fn = sinon.spy(async () => {
         return 1;
       });
       const random = sinon.stub();
@@ -140,7 +140,7 @@ describe("tests", () => {
       // Second call should.
       random.onSecondCall().returns(51.00);
 
-      const circuit: Circuit = new Circuit(fn, {
+      const circuit: CircuitBreaker = new CircuitBreaker(fn, {
         initialState: CircuitState.HALF_OPEN,
         random,
       });
@@ -150,7 +150,7 @@ describe("tests", () => {
     });
 
     it("will open after N consecutive successful calls", async () => {
-      const fn = sinon.spy(() => {
+      const fn = sinon.spy(async () => {
         return 1;
       });
       const random = sinon.stub();
@@ -160,7 +160,7 @@ describe("tests", () => {
       random.onSecondCall().returns(100.00);
       random.onThirdCall().returns(100.00);
 
-      const circuit: Circuit = new Circuit(fn, {
+      const circuit: CircuitBreaker = new CircuitBreaker(fn, {
         initialState: CircuitState.HALF_OPEN,
         openThreshold: 3,
         random,
@@ -190,7 +190,7 @@ describe("tests", () => {
     });
 
     describe("will close after N consecutive failed calls", async () => {
-      const fn = sinon.spy(() => {
+      const fn = sinon.spy(async () => {
         throw new Error("uh");
       });
       const random = sinon.stub();
@@ -200,7 +200,7 @@ describe("tests", () => {
       random.onSecondCall().returns(100.00);
       random.onThirdCall().returns(100.00);
 
-      const circuit: Circuit = new Circuit(fn, {
+      const circuit: CircuitBreaker = new CircuitBreaker(fn, {
         initialState: CircuitState.HALF_OPEN,
         closeThreshold: 3,
         random,

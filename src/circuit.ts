@@ -1,54 +1,31 @@
 import {EventEmitter} from "events";
 
-import {CircuitState} from "./state";
+import CircuitOptions from "./options";
 import {CallResponse} from "./response";
+import {CircuitState} from "./state";
 
 const CLOSED_ERROR: Error = new Error("Circuit is closed, function not called");
 
-interface IRandomNumberGenerator {
-  (min: number, max: number): number;
+interface IKeyValue {
+  [key: string]: any;
 }
 
-const random = (min: number, max: number): number => Math.floor((Math.random() * min) + max);
-
-type IKeyValue = { [key: string]: any };
-
-class CircuitOptions {
-  // The number of thrown Errors required to close the circuit, either
-  // from an open -> closed state, or a half-open -> closed state.
-  public closeThreshold?: number = 1;
-
-  // The number of successful calls required to open the circuit from a half-open state.
-  public openThreshold?: number = 1;
-
-  // When in a closed state, the amount of time (milliseconds) before the circuit will
-  // transition into the half-open state.
-  public halfOpenTimeout?: number = 60 * 1000;
-
-  // When in a half-open state, the percentage of calls allowed to go through.
-  public halfOpenCallRate?: number = 50.0;
-
-  // Initial circuit state, mostly useful for tests.
-  public initialState?: CircuitState = CircuitState.OPEN;
-
-  // Random number generator used in half-open state, also useful for tests.
-  public random?: IRandomNumberGenerator = random;
-}
+type Callable = (...args: any[]) => Promise<any>;
 
 const defaultCircuitOptions: CircuitOptions = new CircuitOptions();
 
-export default class Circuit extends EventEmitter {
-  protected fn: Function;
+export default class CircuitBreaker extends EventEmitter {
+  protected fn: Callable;
   private state: CircuitState = CircuitState.OPEN;
   private options: CircuitOptions;
   private halfOpenTimeoutHandle = null;
   private metrics: IKeyValue = {
-    halfOpenCalls: 0,
     consecutiveFailedCalls: 0,
     consecutiveOkCalls: 0,
+    halfOpenCalls: 0,
   };
 
-  constructor(fn: Function, options: CircuitOptions = {}) {
+  constructor(fn: Callable, options: CircuitOptions = {}) {
     super();
 
     this.fn = fn;
@@ -56,6 +33,30 @@ export default class Circuit extends EventEmitter {
 
     this.setState(this.options.initialState);
     this.registerCleanupHandler();
+  }
+
+  public async call(...args: any[]): Promise<any> {
+    switch (this.state) {
+      case CircuitState.CLOSED:
+        return CLOSED_ERROR;
+      case CircuitState.HALF_OPEN:
+        return this.shouldMakeHalfOpenCall ? this.attemptHalfOpenCall(args) : CLOSED_ERROR;
+      case CircuitState.OPEN:
+        return this.attemptCall(args);
+    }
+  }
+
+  public async callOrDefault(...args: any[]): Promise<any> {
+    let def: any = null;
+    if (args.length >= 1) {
+      def = args.pop();
+    }
+
+    if (this.isClosed) {
+      return def;
+    }
+
+    return this.call(args);
   }
 
   private registerCleanupHandler() {
@@ -68,32 +69,6 @@ export default class Circuit extends EventEmitter {
 
   private clearTimers() {
     clearTimeout(this.halfOpenTimeoutHandle);
-  }
-
-  public async call(...args: any[]): Promise<any> {
-    switch (this.state) {
-      case CircuitState.CLOSED:
-        return CLOSED_ERROR;
-      case CircuitState.HALF_OPEN:
-        return this.options.random(1, 100) >= this.options.halfOpenCallRate ?
-          this.attemptHalfOpenCall(args)
-          : CLOSED_ERROR;
-      case CircuitState.OPEN:
-        return this.attemptCall(args);
-    }
-  }
-
-  public async callOrDefault(...args: any[]) : Promise<any> {
-    let def: any = null;
-    if (args.length >= 1) {
-      def = args.pop();
-    }
-
-    if (this.isClosed) {
-      return def;
-    }
-
-    return this.call(args);
   }
 
   private incrementFailed() {
@@ -203,5 +178,9 @@ export default class Circuit extends EventEmitter {
 
   private get shouldClose(): boolean {
     return this.metrics.consecutiveFailedCalls >= this.options.closeThreshold;
+  }
+
+  private get shouldMakeHalfOpenCall(): boolean {
+    return this.options.random(1, 100) >= this.options.halfOpenCallRate;
   }
 }
