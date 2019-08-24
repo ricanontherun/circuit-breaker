@@ -92,6 +92,7 @@ describe("tests", () => {
       chai.expect(closedError).to.be.instanceOf(Error);
       chai.assert(closedError.message === "Circuit is closed, function not called");
     });
+
     it("will transition to half-open after a certain period of time", async () => {
       const timeout: number = 3 * 1000;
       const fn = sinon.spy();
