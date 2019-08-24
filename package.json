@@ -1,7 +1,7 @@
 {
   "name": "circuit-breaker",
-  "version": "0.0.0",
-  "author": "",
+  "version": "1.0.0",
+  "author": "Christian Roman",
   "main": "build/index.js",
   "dependencies": {
     "@types/node": "^12.7.1"
@@ -24,6 +24,10 @@
   },
   "scripts": {
     "build": "tsc",
-    "test": "./node_modules/mocha/bin/mocha -r ts-node/register --exit test/**/*.spec.ts"
-  }
+    "test": "./node_modules/mocha/bin/mocha -r ts-node/register --exit test/**/*.spec.ts",
+    "prepublishOnly": "npm install && node_modules/.bin/tsc"
+  },
+  "files": [
+    "build"
+  ]
 }
