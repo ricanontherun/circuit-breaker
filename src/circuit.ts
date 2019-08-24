@@ -14,15 +14,18 @@ const random = (min: number, max: number): number => Math.floor((Math.random() *
 type IKeyValue = { [key: string]: any };
 
 class CircuitOptions {
-  public closeAfterFailedCalls?: number = 1;
+  // The number of thrown Errors required to close the circuit, either
+  // from an open -> closed state, or a half-open -> closed state.
+  public closeThreshold?: number = 1;
 
-  public openAfterOkCalls?: number = 1;
+  // The number of successful calls required to open the circuit from a half-open state.
+  public openThreshold?: number = 1;
 
-  // The amount of time (milliseconds) before the circuit should
+  // When in a closed state, the amount of time (milliseconds) before the circuit will
   // transition into the half-open state.
   public halfOpenTimeout?: number = 60 * 1000;
 
-  // The percentage of calls which should be made when in the half-open state.
+  // When in a half-open state, the percentage of calls allowed to go through.
   public halfOpenCallRate?: number = 50.0;
 
   // Initial circuit state, mostly useful for tests.
@@ -34,7 +37,7 @@ class CircuitOptions {
 
 const defaultCircuitOptions: CircuitOptions = new CircuitOptions();
 
-class Circuit extends EventEmitter {
+export default class Circuit extends EventEmitter {
   protected fn: Function;
   private state: CircuitState = CircuitState.OPEN;
   private options: CircuitOptions;
@@ -56,10 +59,11 @@ class Circuit extends EventEmitter {
   }
 
   private registerCleanupHandler() {
-    process.on("exit", this.clearTimers);
-    process.on("SIGINT", this.clearTimers);
-    process.on("SIGUSR1", this.clearTimers);
-    process.on("SIGUSR2", this.clearTimers);
+    process
+      .on("exit", this.clearTimers)
+      .on("SIGINT", this.clearTimers)
+      .on("SIGUSR1", this.clearTimers)
+      .on("SIGUSR2", this.clearTimers);
   }
 
   private clearTimers() {
@@ -77,6 +81,19 @@ class Circuit extends EventEmitter {
       case CircuitState.OPEN:
         return this.attemptCall(args);
     }
+  }
+
+  public async callOrDefault(...args: any[]) : Promise<any> {
+    let def: any = null;
+    if (args.length >= 1) {
+      def = args.pop();
+    }
+
+    if (this.isClosed) {
+      return def;
+    }
+
+    return this.call(args);
   }
 
   private incrementFailed() {
@@ -123,10 +140,8 @@ class Circuit extends EventEmitter {
     if (!callResponse.ok) {
       this.incrementFailed();
 
-      if (this.metrics.consecutiveFailedCalls > this.options.closeAfterFailedCalls) {
+      if (this.shouldClose) {
         this.setState(CircuitState.HALF_OPEN);
-
-        this.metrics.consecutiveFailedCalls = 0;
 
         return CLOSED_ERROR;
       }
@@ -162,9 +177,7 @@ class Circuit extends EventEmitter {
   }
 
   private startClosedTimer() {
-    if (this.halfOpenTimeoutHandle !== null) {
-      clearTimeout(this.halfOpenTimeoutHandle);
-    }
+    clearTimeout(this.halfOpenTimeoutHandle);
 
     this.halfOpenTimeoutHandle = setTimeout(() => {
       this.setState(CircuitState.HALF_OPEN);
@@ -185,14 +198,10 @@ class Circuit extends EventEmitter {
   }
 
   private get shouldOpen(): boolean {
-    return this.metrics.consecutiveOkCalls >= this.options.openAfterOkCalls;
+    return this.metrics.consecutiveOkCalls >= this.options.openThreshold;
   }
 
   private get shouldClose(): boolean {
-    return this.metrics.consecutiveFailedCalls >= this.options.closeAfterFailedCalls;
+    return this.metrics.consecutiveFailedCalls >= this.options.closeThreshold;
   }
 }
-
-export {
-  Circuit,
-};

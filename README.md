@@ -1,43 +1,30 @@
-# circuit-breaker
+# Circuit Breaker
 
-An awesome MVC typescript project, that displays Hello World.
+Usage
+```javascript
+import Circuit from "./circuit";
+```
 
-## Links
+Close on first caught Error
+```javascript
+const circuitOptions = {
+  closeAfterFailedCalls: 1, // defaults to 1.
+};
+const circutBreaker = new CircuitBreaker(async () => {
+  throw new Error('Yep');
+});
+```
 
-- Source: 
-- Bugs:
-- Documentation: [http://thirdlink.whatnot/whatever](http://loldamn.com/wp-content/uploads/2014/02/funny-little-fat-puppies-food.jpg)
+```javascript
+import Circuit from "./circuit";
 
-## Project Setup
+const circutBreaker = new CircuitBreaker(async () => {
+  throw new Error('Yep');
+});
 
-This project uses [gulp](http://gulpjs.com/) as its build system. 
+await circuitBreaker.call();
 
-- Install gulp: `$ npm install -g gulp`
+circuitBreaker.isClosed; // true
 
-1. Install dependencies: `$ npm install`
-2. Build and run: `$ gulp buildrun`
-
-
-## Testing
-
-This project usings [mocha](http://visionmedia.github.io/mocha/) for unit testing. Install mocha:
-
-- `$ npm install -g mocha`
-
-To compile and test run:
-
--  `$ gulp && mocha`
-
-## Troubleshooting & Useful Tools
-
-_Examples of common tasks_
-
-> e.g.
-> 
-> - How to make curl requests while authenticated via oauth.
-> - How to monitor background jobs.
-> - How to run the app through a proxy.
-
-## License
-
-MIT
+await circuitBreaker.call(); // Error
+```
