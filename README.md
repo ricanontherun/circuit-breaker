@@ -1,14 +1,9 @@
 # Circuit Breaker
 
-Usage
-```javascript
-import Circuit from "./circuit";
-```
-
 Close on first caught Error
 ```javascript
 const circuitOptions: CircuitOptions = {
-  closeAfterFailedCalls: 1, // defaults to 1.
+  closeThreshold: 1, // defaults to 1.
 };
 
 const circutBreaker: CircuitBreaker = new CircuitBreaker(async (n) => {
