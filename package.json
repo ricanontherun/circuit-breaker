@@ -2,7 +2,7 @@
   "name": "circuit-breaker",
   "version": "1.0.0",
   "author": "Christian Roman",
-  "main": "build/index.js",
+  "main": "build/src/index.js",
   "dependencies": {
     "@types/node": "^12.7.1"
   },

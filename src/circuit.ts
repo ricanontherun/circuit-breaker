@@ -14,7 +14,7 @@ type Callable = (...args: any[]) => Promise<any>;
 
 const defaultCircuitOptions: CircuitOptions = new CircuitOptions();
 
-export default class CircuitBreaker extends EventEmitter {
+export class CircuitBreaker extends EventEmitter {
   protected fn: Callable;
   private state: CircuitState = CircuitState.OPEN;
   private options: CircuitOptions;

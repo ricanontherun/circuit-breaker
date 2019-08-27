@@ -1,8 +1,7 @@
 import * as sinon from "sinon";
 import * as chai from "chai";
 
-import CircuitBreaker from "../src/circuit";
-import {CircuitState} from "../src/state";
+import {CircuitBreaker, CircuitState} from "../src";
 
 const assertOpenCircuit = (circuit) =>
   chai.assert(circuit.isOpen, "CircuitBreaker should be open");
