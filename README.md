@@ -1,30 +1,20 @@
 # Circuit Breaker
 
-Close on first caught Error
-```javascript
-const circuitOptions: CircuitOptions = {
-  closeThreshold: 1, // defaults to 1.
-};
-
-const circutBreaker: CircuitBreaker = new CircuitBreaker(async (n) => {
-  throw new Error('Yep');
+Example Usage
+```typescript
+const circuitBreaker = new CircuitBreaker(() => {
+  callSomeDownstreamService();
+}, { // Options.
+     // Close the circuit after 10 consecutive failed calls.
+     closeThreshold: 10,
+   
+     // Open the circuit (if closed/half-open) after 5 consecutive ok calls.
+     openThreshold: 5,
+   
+     // Automatically transition from closed to half-open after 5 seconds.
+     halfOpenTimeout: 5000,
+   
+     // When the circuit is half-open, only allow 80% of calls to be made.
+     halfOpenCallRate: 80.0,
 });
-
-await circuitBreaker.call(1);
-
-circuitBreaker.isClosed; // true.
-```
-
-```javascript
-import Circuit from "./circuit";
-
-const circutBreaker = new CircuitBreaker(async () => {
-  throw new Error('Yep');
-});
-
-await circuitBreaker.call();
-
-circuitBreaker.isClosed; // true
-
-await circuitBreaker.call(); // Error
 ```

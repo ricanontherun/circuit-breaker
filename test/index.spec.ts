@@ -1,5 +1,6 @@
-import * as sinon from "sinon";
+import * as assert from "assert";
 import * as chai from "chai";
+import * as sinon from "sinon";
 
 import {CircuitBreaker, CircuitState} from "../src";
 
@@ -15,6 +16,16 @@ const assertClosedCircuit = (circuit) =>
 const callAndAssertCalled = async (circuit, spy) => {
   await circuit.call();
   chai.assert(spy.called);
+};
+
+const assertClosedError = (err) => {
+  chai.expect(err).to.be.instanceOf(Error);
+  chai.assert(err.message === "Circuit is closed");
+};
+
+const assertHalfClosedError = (err) => {
+  chai.expect(err).to.be.instanceOf(Error);
+  chai.assert(err.message === "Circuit is half-closed");
 };
 
 describe("tests", () => {
@@ -42,7 +53,7 @@ describe("tests", () => {
       chai.expect(value).to.be.equal(1);
     });
 
-    it("will change to half-open when failed call threshold is met or exceeded.", async () => {
+    it("will change to half-open when failed call threshold is met or exceeded", async () => {
       const fn = sinon.spy(async () => {
         throw new Error();
       });
@@ -58,8 +69,13 @@ describe("tests", () => {
 
       // Second failed call should half-close the circuit.
       assertOpenCircuit(circuit);
-      await callAndAssertCalled(circuit, fn);
-      assertHalfOpenCircuit(circuit);
+      try {
+        await callAndAssertCalled(circuit, fn);
+        assert.fail("open circuit should have half-closed (and thrown)");
+      } catch (err) {
+        assertHalfOpenCircuit(circuit);
+        assertHalfClosedError(err);
+      }
     });
 
     it("will not change to half-open if failed call threshold is not exceeded", async () => {
@@ -79,17 +95,17 @@ describe("tests", () => {
 
   describe("state: closed", () => {
     it("will not call the registered function", async () => {
-      const fn = sinon.spy(async () => {
-      });
+      const fn = sinon.spy();
       const circuit = new CircuitBreaker(fn, {
         initialState: CircuitState.CLOSED,
       });
 
-      const closedError: Error = await circuit.call();
-
-      chai.expect(fn.called).to.be.false;
-      chai.expect(closedError).to.be.instanceOf(Error);
-      chai.assert(closedError.message === "Circuit is closed, function not called");
+      try {
+        await circuit.call();
+      } catch (closedError) {
+        chai.expect(fn.called).to.be.false;
+        assertClosedError(closedError);
+      }
     });
 
     it("will transition to half-open after a certain period of time", async () => {
@@ -126,7 +142,6 @@ describe("tests", () => {
     });
   });
 
-
   describe("state: half-open", () => {
     it("will return default value if half-open call is rejected", async () => {
       const fn = sinon.spy(async () => {
@@ -145,8 +160,11 @@ describe("tests", () => {
         random,
       });
 
-      const value = await circuit.call(2);
-      chai.expect(value).to.be.instanceOf(Error);
+      assertHalfOpenCircuit(circuit);
+      // First call doesn't make it through the half-open circuit, so we should
+      // receive the default value of 3.
+      const value = await circuit.callOrDefault(2, 3);
+      chai.expect(value).to.be.equal(3);
     });
 
     it("will open after N consecutive successful calls", async () => {
@@ -201,8 +219,8 @@ describe("tests", () => {
       random.onThirdCall().returns(100.00);
 
       const circuit: CircuitBreaker = new CircuitBreaker(fn, {
-        initialState: CircuitState.HALF_OPEN,
         closeThreshold: 3,
+        initialState: CircuitState.HALF_OPEN,
         random,
       });
 
@@ -223,15 +241,29 @@ describe("tests", () => {
       it("should close after the third failed call", async () => {
         fn.resetHistory();
         assertHalfOpenCircuit(circuit);
-        await circuit.call();
+
+        try {
+          await circuit.call();
+          assert.fail("half-open circuit should have closed (and thrown)");
+        } catch (err) {
+          assertClosedError(err);
+        }
+
         chai.expect(fn.calledOnce).to.be.true;
       });
 
       it("should be closed, function should not be called", async () => {
         fn.resetHistory();
         assertClosedCircuit(circuit);
-        await circuit.call();
-        chai.expect(fn.called).to.be.false;
+
+        try {
+          await circuit.call();
+          assert.fail("half-open circuit should have closed (and thrown)");
+        } catch (err) {
+          chai.expect(fn.called).to.be.false;
+
+          assertClosedError(err);
+        }
       });
     });
   });

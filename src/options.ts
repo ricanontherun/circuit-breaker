@@ -1,12 +1,10 @@
 import {CircuitState} from "./state";
 
-interface IRandomNumberGenerator {
-  (min: number, max: number): number;
-}
+type IRandomNumberGenerator = (min: number, max: number) => number;
 
 const random = (min: number, max: number): number => Math.floor((Math.random() * min) + max);
 
-export default class CircuitOptions {
+export class CircuitOptions {
   // The number of thrown Errors required to close the circuit, either
   // from an open -> closed state, or a half-open -> closed state.
   public closeThreshold?: number = 1;

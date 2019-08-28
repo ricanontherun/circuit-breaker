@@ -1,10 +1,11 @@
 import {EventEmitter} from "events";
 
-import CircuitOptions from "./options";
+import {CircuitOptions} from "./options";
 import {CallResponse} from "./response";
 import {CircuitState} from "./state";
 
-const CLOSED_ERROR: Error = new Error("Circuit is closed, function not called");
+const CLOSED_ERROR: Error = new Error("Circuit is closed");
+const HALF_CLOSED_ERROR: Error = new Error("Circuit is half-closed");
 
 interface IKeyValue {
   [key: string]: any;
@@ -37,12 +38,16 @@ export class CircuitBreaker extends EventEmitter {
 
   public async call(...args: any[]): Promise<any> {
     switch (this.state) {
-      case CircuitState.CLOSED:
-        return CLOSED_ERROR;
-      case CircuitState.HALF_OPEN:
-        return this.shouldMakeHalfOpenCall ? this.attemptHalfOpenCall(args) : CLOSED_ERROR;
       case CircuitState.OPEN:
         return this.attemptCall(args);
+      case CircuitState.HALF_OPEN:
+        if (!this.shouldMakeHalfOpenCall) {
+          throw HALF_CLOSED_ERROR;
+        }
+
+        return this.attemptHalfOpenCall(args);
+      case CircuitState.CLOSED:
+        throw CLOSED_ERROR;
     }
   }
 
@@ -56,7 +61,11 @@ export class CircuitBreaker extends EventEmitter {
       return def;
     }
 
-    return this.call(args);
+    try {
+      return await this.call(args);
+    } catch (err) {
+      return def;
+    }
   }
 
   private registerCleanupHandler() {
@@ -96,8 +105,10 @@ export class CircuitBreaker extends EventEmitter {
 
       if (this.shouldClose) {
         this.setState(CircuitState.CLOSED);
-        return CLOSED_ERROR;
+        throw CLOSED_ERROR;
       }
+
+      return callResponse.error;
     } else {
       this.incrementSuccessful();
 
@@ -115,10 +126,9 @@ export class CircuitBreaker extends EventEmitter {
     if (!callResponse.ok) {
       this.incrementFailed();
 
-      if (this.shouldClose) {
+      if (this.shouldHalfClose) {
         this.setState(CircuitState.HALF_OPEN);
-
-        return CLOSED_ERROR;
+        throw HALF_CLOSED_ERROR;
       }
     }
 
@@ -139,6 +149,10 @@ export class CircuitBreaker extends EventEmitter {
   }
 
   private setState(to: CircuitState): void {
+    if (this.state === to) {
+      return;
+    }
+
     const from: CircuitState = this.state;
 
     this.state = to;
@@ -178,6 +192,10 @@ export class CircuitBreaker extends EventEmitter {
 
   private get shouldClose(): boolean {
     return this.metrics.consecutiveFailedCalls >= this.options.closeThreshold;
+  }
+
+  private get shouldHalfClose(): boolean {
+    return this.shouldClose;
   }
 
   private get shouldMakeHalfOpenCall(): boolean {
