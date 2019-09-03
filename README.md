@@ -1,5 +1,10 @@
 # Circuit Breaker
 
+Installation
+```
+npm i @ricanontherun/circuit-breaker
+```
+
 Example Usage
 ```typescript
 const circuitBreaker = new CircuitBreaker(() => {
