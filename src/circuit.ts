@@ -3,6 +3,7 @@ import {EventEmitter} from "events";
 import {CircuitOptions} from "./options";
 import {CallResponse} from "./response";
 import {CircuitState} from "./state";
+import Timer = NodeJS.Timer;
 
 const CLOSED_ERROR: Error = new Error("Circuit is closed");
 const HALF_CLOSED_ERROR: Error = new Error("Circuit is half-closed");
@@ -19,14 +20,14 @@ export class CircuitBreaker extends EventEmitter {
   protected fn: Callable;
   private state: CircuitState = CircuitState.OPEN;
   private options: CircuitOptions;
-  private halfOpenTimeoutHandle = null;
+  private halfOpenTimeoutHandle: Timer | null = null;
   private metrics: IKeyValue = {
     consecutiveFailedCalls: 0,
     consecutiveOkCalls: 0,
     halfOpenCalls: 0,
   };
 
-  constructor(fn: Callable, options: CircuitOptions = {}) {
+  constructor(fn: Callable, options: { [key: string]: any } = {}) {
     super();
 
     this.fn = fn;
@@ -70,14 +71,16 @@ export class CircuitBreaker extends EventEmitter {
 
   private registerCleanupHandler() {
     process
-      .on("exit", this.clearTimers)
-      .on("SIGINT", this.clearTimers)
-      .on("SIGUSR1", this.clearTimers)
-      .on("SIGUSR2", this.clearTimers);
+      .on("exit", this.clearTimer)
+      .on("SIGINT", this.clearTimer)
+      .on("SIGUSR1", this.clearTimer)
+      .on("SIGUSR2", this.clearTimer);
   }
 
-  private clearTimers() {
-    clearTimeout(this.halfOpenTimeoutHandle);
+  private clearTimer() {
+    if (this.halfOpenTimeoutHandle) {
+      clearTimeout(this.halfOpenTimeoutHandle);
+    }
   }
 
   private incrementFailed() {
@@ -166,7 +169,7 @@ export class CircuitBreaker extends EventEmitter {
   }
 
   private startClosedTimer() {
-    clearTimeout(this.halfOpenTimeoutHandle);
+    this.clearTimer();
 
     this.halfOpenTimeoutHandle = setTimeout(() => {
       this.setState(CircuitState.HALF_OPEN);
