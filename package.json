@@ -1,8 +1,8 @@
 {
   "name": "@ricanontherun/circuit-breaker",
-  "version": "1.0.2",
+  "version": "1.0.4",
   "author": "Christian Roman",
-  "main": "build/src/index.js",
+  "main": "build/index.js",
   "dependencies": {
     "@types/node": "^12.7.1"
   },
