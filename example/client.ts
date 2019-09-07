@@ -1,13 +1,13 @@
 import * as http from "http";
 
-import {CircuitBreaker, CircuitState} from "../src";
+import { CircuitBreaker, CircuitState } from "../src";
 
 const fn = () => {
   return new Promise((resolve, reject) => {
     console.log('-> GET "http://localhost:3000');
 
     http.get("http://localhost:3000", (resp) => {
-      const {statusCode} = resp;
+      const { statusCode } = resp;
 
       console.log(`<- ${statusCode}`);
       if (statusCode !== 200) {
@@ -34,10 +34,10 @@ const fn = () => {
 };
 
 const circuitBreaker = new CircuitBreaker(fn, {
-  // Close the circuit after 10 consecutive failed calls.
+  // Close the circuit after 10 consecutive successful calls (no throw)
   closeThreshold: 10,
 
-  // Open the circuit (if closed/half-open) after 5 consecutive ok calls.
+  // Open the circuit (if closed/half-open) after 5 consecutive failed calls.
   openThreshold: 5,
 
   // Automatically transition from closed to half-open after 5 seconds.
@@ -47,7 +47,7 @@ const circuitBreaker = new CircuitBreaker(fn, {
   halfOpenCallRate: 80.0,
 });
 
-circuitBreaker.on("state-change", ({from, to}) => {
+circuitBreaker.on("state-change", ({ from, to }) => {
   console.log(`State: ${CircuitState[from]} -> ${CircuitState[to]}`);
 });
 
