@@ -21,14 +21,16 @@ A semipermeable state in which only `halfOpenCallRate` percentage of calls are m
 1. If the number of `consecutive` failed calls (thrown Error) is greater than or equal to the configured `openThreshold`, the circuit will `open`.
 2. If the number of `consecutive` successful calls is greater than or equal to the configured `closeThreshold`, the circuit will `close`.
 
-Installation
+## Installation
 ```
 npm i @ricanontherun/circuit-breaker
 ```
 
-Example Usage
+## Example Usage
 ```typescript
-const circuitBreaker = new CircuitBreaker(() => {
+import {CircuitBreaker} from '@ricanontherun/circuit-breaker';
+
+const circuitBreaker = new CircuitBreaker(async () => {
   callSomeDownstreamService(); // Might throw.
 }, { // Options.
      // Close the circuit after 10 consecutive successful calls (no throw)
@@ -43,4 +45,7 @@ const circuitBreaker = new CircuitBreaker(() => {
      // When the circuit is half-open, only allow 80% of calls to be made.
      halfOpenCallRate: 80.0,
 });
+
+await circuitBreaker.call();
+await circuitBreaker.callOrDefault('default value if open');
 ```
