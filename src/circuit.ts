@@ -1,12 +1,12 @@
-import {EventEmitter} from "events";
+import { EventEmitter } from "events";
 
-import {CircuitOptions} from "./options";
-import {CallResponse} from "./response";
-import {CircuitState} from "./state";
+import { CircuitOptions } from "./options";
+import { CallResponse } from "./response";
+import { CircuitState } from "./state";
 import Timer = NodeJS.Timer;
 
-const CLOSED_ERROR: Error = new Error("Circuit is closed");
-const HALF_CLOSED_ERROR: Error = new Error("Circuit is half-closed");
+const OPEN_ERROR: Error = new Error("Circuit is open");
+const HALF_OPEN_ERROR: Error = new Error("Circuit is half-open");
 
 interface IKeyValue {
   [key: string]: any;
@@ -18,7 +18,7 @@ const defaultCircuitOptions: CircuitOptions = new CircuitOptions();
 
 export class CircuitBreaker extends EventEmitter {
   protected fn: Callable;
-  private state: CircuitState = CircuitState.OPEN;
+  private state: CircuitState = CircuitState.CLOSED;
   private options: CircuitOptions;
   private halfOpenTimeoutHandle: Timer | null = null;
   private metrics: IKeyValue = {
@@ -31,7 +31,7 @@ export class CircuitBreaker extends EventEmitter {
     super();
 
     this.fn = fn;
-    this.options = {...defaultCircuitOptions, ...options};
+    this.options = { ...defaultCircuitOptions, ...options };
 
     this.setState(this.options.initialState);
     this.registerCleanupHandler();
@@ -39,16 +39,16 @@ export class CircuitBreaker extends EventEmitter {
 
   public async call(...args: any[]): Promise<any> {
     switch (this.state) {
-      case CircuitState.OPEN:
+      case CircuitState.CLOSED:
         return this.attemptCall(args);
       case CircuitState.HALF_OPEN:
         if (!this.shouldMakeHalfOpenCall) {
-          throw HALF_CLOSED_ERROR;
+          throw HALF_OPEN_ERROR;
         }
 
         return this.attemptHalfOpenCall(args);
-      case CircuitState.CLOSED:
-        throw CLOSED_ERROR;
+      case CircuitState.OPEN:
+        throw OPEN_ERROR;
     }
   }
 
@@ -58,7 +58,7 @@ export class CircuitBreaker extends EventEmitter {
       def = args.pop();
     }
 
-    if (this.isClosed) {
+    if (this.isOpen) {
       return def;
     }
 
@@ -67,6 +67,26 @@ export class CircuitBreaker extends EventEmitter {
     } catch (err) {
       return def;
     }
+  }
+
+  public get isOpen(): boolean {
+    return this.state === CircuitState.OPEN;
+  }
+
+  public get isHalfOpen(): boolean {
+    return this.state === CircuitState.HALF_OPEN;
+  }
+
+  public get isClosed(): boolean {
+    return this.state === CircuitState.CLOSED;
+  }
+
+  public reset(): CircuitBreaker {
+    return this.setState(CircuitState.CLOSED);
+  }
+
+  public trip(): CircuitBreaker {
+    return this.setState(CircuitState.OPEN);
   }
 
   private registerCleanupHandler() {
@@ -106,17 +126,17 @@ export class CircuitBreaker extends EventEmitter {
     if (!callResponse.ok) {
       this.incrementFailed();
 
-      if (this.shouldClose) {
-        this.setState(CircuitState.CLOSED);
-        throw CLOSED_ERROR;
+      if (this.shouldOpen) {
+        this.setState(CircuitState.OPEN);
+        throw OPEN_ERROR;
       }
 
       return callResponse.error;
     } else {
       this.incrementSuccessful();
 
-      if (this.shouldOpen) {
-        this.setState(CircuitState.OPEN);
+      if (this.shouldClose) {
+        this.setState(CircuitState.CLOSED);
       }
     }
 
@@ -129,9 +149,9 @@ export class CircuitBreaker extends EventEmitter {
     if (!callResponse.ok) {
       this.incrementFailed();
 
-      if (this.shouldHalfClose) {
+      if (this.shouldHalfOpen) {
         this.setState(CircuitState.HALF_OPEN);
-        throw HALF_CLOSED_ERROR;
+        throw HALF_OPEN_ERROR;
       }
     }
 
@@ -151,24 +171,26 @@ export class CircuitBreaker extends EventEmitter {
     return response;
   }
 
-  private setState(to: CircuitState): void {
+  private setState(to: CircuitState): CircuitBreaker {
     if (this.state === to) {
-      return;
+      return this;
     }
 
     const from: CircuitState = this.state;
 
     this.state = to;
 
-    if (this.isClosed) {
-      this.startClosedTimer();
+    if (this.isOpen) {
+      this.startHalfOpenTimer();
     }
 
     this.resetMetrics();
-    this.emit("state-change", {from, to});
+    this.emit("state-change", { from, to });
+
+    return this;
   }
 
-  private startClosedTimer() {
+  private startHalfOpenTimer() {
     this.clearTimer();
 
     this.halfOpenTimeoutHandle = setTimeout(() => {
@@ -177,28 +199,16 @@ export class CircuitBreaker extends EventEmitter {
     }, this.options.halfOpenTimeout);
   }
 
-  public get isOpen(): boolean {
-    return this.state === CircuitState.OPEN;
-  }
-
-  public get isHalfOpen(): boolean {
-    return this.state === CircuitState.HALF_OPEN;
-  }
-
-  public get isClosed(): boolean {
-    return this.state === CircuitState.CLOSED;
+  private get shouldClose(): boolean {
+    return this.metrics.consecutiveOkCalls >= this.options.closeThreshold;
   }
 
   private get shouldOpen(): boolean {
-    return this.metrics.consecutiveOkCalls >= this.options.openThreshold;
+    return this.metrics.consecutiveFailedCalls >= this.options.openThreshold;
   }
 
-  private get shouldClose(): boolean {
-    return this.metrics.consecutiveFailedCalls >= this.options.closeThreshold;
-  }
-
-  private get shouldHalfClose(): boolean {
-    return this.shouldClose;
+  private get shouldHalfOpen(): boolean {
+    return this.shouldOpen;
   }
 
   private get shouldMakeHalfOpenCall(): boolean {

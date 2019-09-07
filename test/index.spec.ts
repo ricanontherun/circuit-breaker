@@ -17,18 +17,18 @@ const callAndAssertCalled = async (circuit: CircuitBreaker, spy: sinon.SinonSpy)
   assert(spy.called);
 };
 
-const assertClosedError = (err: Error) => {
+const assertOpenError = (err: Error) => {
   expect(err).to.be.instanceOf(Error);
-  assert(err.message === "Circuit is closed");
+  assert(err.message === "Circuit is open");
 };
 
-const assertHalfClosedError = (err: Error) => {
+const assertHalfOpenError = (err: Error) => {
   expect(err).to.be.instanceOf(Error);
-  assert(err.message === "Circuit is half-closed");
+  assert(err.message === "Circuit is half-open");
 };
 
 describe("tests", () => {
-  describe("state: open", () => {
+  describe("state: closed", () => {
     it("will call the registered function", async () => {
       const fn = sinon.spy(async (one, two) => {
         return 1;
@@ -62,18 +62,18 @@ describe("tests", () => {
       });
 
       // First failed call, circuit should remain open.
-      assertOpenCircuit(circuit);
+      assertClosedCircuit(circuit);
       await callAndAssertCalled(circuit, fn);
-      assertOpenCircuit(circuit);
+      assertClosedCircuit(circuit);
 
       // Second failed call should half-close the circuit.
-      assertOpenCircuit(circuit);
+      assertClosedCircuit(circuit);
       try {
         await callAndAssertCalled(circuit, fn);
-        assert.fail("open circuit should have half-closed (and thrown)");
+        assert.fail("closed circuit should have half-closed (and thrown)");
       } catch (err) {
         assertHalfOpenCircuit(circuit);
-        assertHalfClosedError(err);
+        assertHalfOpenError(err);
       }
     });
 
@@ -86,13 +86,13 @@ describe("tests", () => {
         openThreshold: 2,
       });
 
-      assertOpenCircuit(circuit);
+      assertClosedCircuit(circuit);
       await callAndAssertCalled(circuit, fn);
-      assertOpenCircuit(circuit);
+      assertClosedCircuit(circuit);
     });
   });
 
-  describe("state: closed", () => {
+  describe("state: open", () => {
     it("will not call the registered function", async () => {
       const fn = sinon.spy();
       const circuit = new CircuitBreaker(fn, {
@@ -104,7 +104,7 @@ describe("tests", () => {
       } catch (closedError) {
         // tslint:disable-next-line:no-unused-expression
         expect(fn.called).to.be.false;
-        assertClosedError(closedError);
+        assertOpenCircuit(closedError);
       }
     });
 
@@ -113,18 +113,16 @@ describe("tests", () => {
       const fn = sinon.spy();
       const circuit: CircuitBreaker = new CircuitBreaker(fn, {
         halfOpenTimeout: timeout,
-        initialState: CircuitState.CLOSED,
+        initialState: CircuitState.OPEN,
       });
 
-      assertClosedCircuit(circuit);
+      assertOpenCircuit(circuit);
 
-      // After 1 second, circuit should still be closed.
       setTimeout(async () => {
         await circuit.call();
-        assertClosedCircuit(circuit);
+        assertOpenCircuit(circuit);
       }, 1000);
 
-      // At this point, the circuit should have changed states.
       setTimeout(async () => {
         assertHalfOpenCircuit(circuit);
       }, timeout);
@@ -135,7 +133,7 @@ describe("tests", () => {
         return 100;
       });
       const circuit: CircuitBreaker = new CircuitBreaker(fn, {
-        initialState: CircuitState.CLOSED,
+        initialState: CircuitState.OPEN,
       });
 
       expect(await circuit.callOrDefault(101)).to.be.equal(101);
@@ -167,7 +165,7 @@ describe("tests", () => {
       expect(value).to.be.equal(3);
     });
 
-    it("will open after N consecutive successful calls", async () => {
+    it("will close after N consecutive successful calls", async () => {
       const fn = sinon.spy(async () => {
         return 1;
       });
@@ -179,8 +177,8 @@ describe("tests", () => {
       random.onThirdCall().returns(100.00);
 
       const circuit: CircuitBreaker = new CircuitBreaker(fn, {
+        closeThreshold: 3,
         initialState: CircuitState.HALF_OPEN,
-        openThreshold: 3,
         random,
       });
 
@@ -204,10 +202,10 @@ describe("tests", () => {
       expect(fn.calledOnce).to.be.true;
       expect(response).to.be.equal(1);
 
-      assertOpenCircuit(circuit);
+      assertClosedCircuit(circuit);
     });
 
-    describe("will close after N consecutive failed calls", async () => {
+    describe("will open after N consecutive failed calls", async () => {
       const fn = sinon.spy(async () => {
         throw new Error("uh");
       });
@@ -219,8 +217,8 @@ describe("tests", () => {
       random.onThirdCall().returns(100.00);
 
       const circuit: CircuitBreaker = new CircuitBreaker(fn, {
-        closeThreshold: 3,
         initialState: CircuitState.HALF_OPEN,
+        openThreshold: 3,
         random,
       });
 
@@ -238,31 +236,31 @@ describe("tests", () => {
         expect(fn.calledOnce).to.be.true;
       });
 
-      it("should close after the third failed call", async () => {
+      it("should open after the third failed call", async () => {
         fn.resetHistory();
         assertHalfOpenCircuit(circuit);
 
         try {
           await circuit.call();
-          assert.fail("half-open circuit should have closed (and thrown)");
+          assert.fail("half-open circuit should have open (and thrown)");
         } catch (err) {
-          assertClosedError(err);
+          assertOpenError(err);
         }
 
         expect(fn.calledOnce).to.be.true;
       });
 
-      it("should be closed, function should not be called", async () => {
+      it("should be open, function should not be called", async () => {
         fn.resetHistory();
-        assertClosedCircuit(circuit);
+        assertOpenCircuit(circuit);
 
         try {
           await circuit.call();
-          assert.fail("half-open circuit should have closed (and thrown)");
+          assert.fail("half-open circuit should have opened (and thrown)");
         } catch (err) {
           expect(fn.called).to.be.false;
 
-          assertClosedError(err);
+          assertOpenError(err);
         }
       });
     });
