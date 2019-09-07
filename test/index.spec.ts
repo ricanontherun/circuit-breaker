@@ -95,9 +95,7 @@ describe("tests", () => {
   describe("state: open", () => {
     it("will not call the registered function", async () => {
       const fn = sinon.spy();
-      const circuit = new CircuitBreaker(fn, {
-        initialState: CircuitState.CLOSED,
-      });
+      const circuit = new CircuitBreaker(fn);
 
       try {
         await circuit.call();
@@ -113,8 +111,9 @@ describe("tests", () => {
       const fn = sinon.spy();
       const circuit: CircuitBreaker = new CircuitBreaker(fn, {
         halfOpenTimeout: timeout,
-        initialState: CircuitState.OPEN,
       });
+
+      circuit.trip();
 
       assertOpenCircuit(circuit);
 
@@ -132,9 +131,10 @@ describe("tests", () => {
       const fn = sinon.spy(async () => {
         return 100;
       });
-      const circuit: CircuitBreaker = new CircuitBreaker(fn, {
-        initialState: CircuitState.OPEN,
-      });
+
+      const circuit: CircuitBreaker = new CircuitBreaker(fn);
+
+      circuit.trip();
 
       expect(await circuit.callOrDefault(101)).to.be.equal(101);
     });
