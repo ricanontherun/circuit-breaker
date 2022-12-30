@@ -15,7 +15,7 @@
     "gulp-shell": "^0.7.1",
     "gulp-tsc": "^0.10.1",
     "gulp-tslint": "^8.1.4",
-    "mocha": "^6.2.0",
+    "mocha": "^10.2.0",
     "run-sequence": "^1.1.1",
     "sinon": "^7.4.1",
     "ts-node": "^8.3.0",
